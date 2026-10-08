@@ -1,0 +1,52 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Python artefacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.eggs
+dist
+build
+.venv
+venv
+env
+
+# Test and coverage artefacts
+.pytest_cache
+htmlcov
+.coverage
+coverage.xml
+coverage-*.xml
+
+# Editor / IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data (never bake into the image)
+*.db
+/data
+uploads
+
+# Docs and samples
+docs
+sample_data
+README.md
+CHANGELOG.md
+
+# Makefile / compose files (not needed inside image)
+Makefile
+docker-compose.yml
+docker-compose.override.yml
+.env
+.env.*

@@ -1,0 +1,58 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Target the slim runtime stage (skip builder artefacts)
+      target: runtime
+    image: geo-measure-api:latest
+    container_name: geo-measure-api
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+
+    # Override any ENV defaults here; secret values go in .env (git-ignored)
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/geo_measure.db
+      UPLOAD_DIR: /data/uploads
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-50}"
+      MAX_UNZIPPED_MB: "${MAX_UNZIPPED_MB:-200}"
+      MAX_ZIP_ENTRIES: "${MAX_ZIP_ENTRIES:-50}"
+
+    # Named volume for the SQLite database file and uploaded files
+    volumes:
+      - geo_data:/data
+
+    networks:
+      - geo_net
+
+    restart: unless-stopped
+
+    # Override the built-in HEALTHCHECK with docker-compose syntax
+    # (matches the Dockerfile HEALTHCHECK for parity)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # Drop all Linux capabilities and re-add only what uvicorn needs
+    security_opt:
+      - no-new-privileges:true
+    read_only: false        # /data/uploads requires write access
+    tmpfs:
+      - /tmp:size=64m       # scratch space for zip extraction
+
+# ---------------------------------------------------------------------------
+# Named volume — survives container restarts and recreations
+# ---------------------------------------------------------------------------
+volumes:
+  geo_data:
+    name: geo_measure_data
+
+# ---------------------------------------------------------------------------
+# Isolated bridge network (no access to other compose stacks by default)
+# ---------------------------------------------------------------------------
+networks:
+  geo_net:
+    driver: bridge

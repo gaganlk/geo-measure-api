@@ -1,0 +1,112 @@
+# =============================================================
+# geo-measure-api — tool configuration
+# =============================================================
+
+# ---------------------------------------------------------------------------
+# Ruff — linter + formatter
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length    = 100
+src            = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes (undefined names, unused imports …)
+    "I",    # isort
+    "B",    # flake8-bugbear (common gotchas)
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade (modernise syntax)
+    "ARG",  # flake8-unused-arguments
+    "D",    # pydocstring conventions
+    "S",    # flake8-bandit security checks
+    "SIM",  # flake8-simplify
+    "TRY",  # tryceratops (exception handling)
+    "RUF",  # Ruff-native rules
+]
+ignore = [
+    # ---- docstring style conflicts ----
+    "D100",  # Missing docstring in public module
+    "D104",  # Missing docstring in public package
+    "D107",  # Missing docstring in __init__
+    "D203",  # one-blank-line-before-class  (conflicts with D211)
+    "D213",  # multi-line-summary-second-line (conflicts with D212)
+    # ---- internal methods: docstrings optional for small focused modules ----
+    "D101",  # Missing docstring in public class
+    "D102",  # Missing docstring in public method
+    "D105",  # Missing docstring in magic method
+    # ---- FastAPI pattern: Depends() in default argument is the idiomatic form ----
+    "B008",  # Do not perform function call in argument defaults
+    # ---- raise inside try body — our pattern is raise-from not re-raise ----
+    "TRY301",
+    # ---- Unicode symbols in docstrings/comments are intentional (maths notation) ----
+    "RUF001", "RUF002", "RUF003",
+    # ---- false positives / intentional patterns ----
+    "S101",  # Use of `assert` — fine in tests
+    "S314",  # xml.etree.ElementTree — we parse, not exec
+    "TRY003",# Long exception messages inside raise — acceptable
+    "TRY300",# try-else — stylistic preference
+    "RUF012",# ClassVar annotation for mutable defaults — handled by Pydantic
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: disable docstring, unused-arg, security, style rules + allow long lines in assertions
+"tests/*"                   = ["D", "ARG", "S", "TRY", "SIM", "E501"]
+"sample_data/*"             = ["D", "ARG", "S", "TRY", "SIM", "E501"]
+# Ingestion and readers do deliberate bare-except / BLE001 catches
+"app/services/ingestion.py"  = ["BLE001"]
+"app/services/readers.py"    = ["BLE001"]
+"app/services/processing.py" = ["BLE001"]
+"app/services/measurement.py" = ["BLE001"]
+"app/services/crs.py"        = ["BLE001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+force-sort-within-sections = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style             = "double"
+indent-style            = "space"
+skip-magic-trailing-comma = false
+line-ending             = "auto"
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths    = ["tests"]
+# Default: run with coverage; pass --no-cov to skip (used in `make test`)
+addopts = "--cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-branch -q"
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source  = ["app"]
+branch  = true
+# Omit the app factory itself (thin wiring code, hard to unit-test)
+omit    = ["app/main.py"]
+
+[tool.coverage.report]
+# Lines matching these patterns are excluded from coverage percentages
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+]
+# Fail the CI run if coverage drops below this threshold
+fail_under = 60
+
+[tool.coverage.html]
+directory = "htmlcov"

@@ -218,3 +218,29 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# geo-measure-api project-specific
+# ---------------------------------------------------------------------------
+# Local dev database files
+*.db
+*.db-shm
+*.db-wal
+
+# Upload scratch dirs
+uploads/
+/data/
+
+# Coverage artefacts (XML files from integration runs)
+coverage-*.xml
+
+# env override file (keep only .env.example)
+.env
+
+# Docker build cache
+.docker/
+
+# Documentation generator artifacts
+*.pdf
+generate_docs_pdf.py
+

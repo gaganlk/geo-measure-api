@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Sample Parcels and Roads</name>
+    <Folder>
+      <name>Parcels</name>
+      <Placemark>
+        <name>Parcel Alpha</name>
+        <description>Agricultural zone</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                9.0,51.0,0 9.01,51.0,0 9.01,51.01,0 9.0,51.01,0 9.0,51.0,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>Parcel Beta</name>
+        <description>Commercial zone</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                9.02,51.0,0 9.03,51.0,0 9.03,51.01,0 9.02,51.01,0 9.02,51.0,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Transport</name>
+      <Placemark>
+        <name>Main Highway</name>
+        <description>State connector</description>
+        <LineString>
+          <coordinates>
+            9.0,51.0,0 9.015,51.005,0 9.03,51.01,0
+          </coordinates>
+        </LineString>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>
