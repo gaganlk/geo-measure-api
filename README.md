@@ -4,34 +4,51 @@ A production-quality FastAPI service that accepts a zipped Shapefile or a KML fi
 extracts every feature, selects a best-fit projected CRS **per feature**, and returns
 area and length measurements in SI units.
 
+> 📄 **Evaluation Report:** Complete project writeup and audit documentation are available at [`docs/geo-measure-api-report.pdf`](docs/geo-measure-api-report.pdf).
+
 ---
 
 ## Table of Contents
 
-1. [Overview](#overview)
+1. [Overview & Assignment Compliance](#overview--assignment-compliance)
 2. [Setup](#setup)
    - [Local (virtualenv)](#local-virtualenv)
    - [Docker](#docker)
 3. [Running tests](#running-tests)
-4. [API reference](#api-reference)
+4. [API](#api)
    - [POST /api/files/](#post-apifiles)
    - [GET /api/files/{id}/](#get-apifiles-id)
    - [GET /api/files/{id}/measurements/](#get-apifiles-idmeasurements)
    - [GET /api/files/](#get-apifiles)
    - [Error envelope](#error-envelope)
 5. [Architecture](#architecture)
-   - [Project layout](#project-layout)
+   - [Application structure](#application-structure)
    - [File-processing flow](#file-processing-flow)
-   - [Measurement flow](#measurement-flow)
+   - [Measurement calculation flow](#measurement-calculation-flow)
    - [CRS handling](#crs-handling)
 6. [Design decisions](#design-decisions)
-7. [Limitations](#limitations)
+7. [Limitations & accuracy](#limitations--accuracy)
 8. [Learnings](#learnings)
 9. [Future scope](#future-scope)
 
 ---
 
-## Overview
+## Overview & Assignment Compliance
+
+### Requirements Compliance Matrix
+
+| Requirement | Spec Item | Implementation Details | Status |
+|---|---|---|:---:|
+| **1. Backend Framework** | FastAPI or Django+DRF | FastAPI (Python 3.12+), async SQLAlchemy 2, Pydantic v2 | ✅ Complete |
+| **2. File Upload** | `POST /api/files/` (.zip Shapefile, .kml) | Streaming validation, Zip-slip & size checks, magic byte detection | ✅ Complete |
+| **3. File Processing** | ID, geometry type, geometry, CRS, properties; graceful failure | Isolated per-feature errors; repairs invalid geometries with `make_valid` | ✅ Complete |
+| **4. Measurements** | Polygon (Area), LineString (Length), Point (None) | `area_m2`, `area_ha`, `perimeter_m`, `length_m`, `length_km`, `NOT_REQUIRED` for Point | ✅ Complete |
+| **5. CRS Handling** | Projected CRS transformation; no degrees | Dynamic per-feature UTM zone selection (with Polar UPS fallback) | ✅ Complete |
+| **6. API Design** | `POST /api/files/`, `GET /api/files/{id}/`, `GET /api/files/{id}/measurements/` | Full standard envelopes, OpenAPI docs (`/docs`), pagination & geometry inclusion | ✅ Complete |
+| **7. Documentation** | Setup, API, Architecture, Design Decisions in README | Comprehensive guides with copy-paste curl commands & diagrams | ✅ Complete |
+| **8. Submission** | Public GitHub repo, Learnings & Future scope | Conventional git commits, CI workflow, report in `docs/` | ✅ Complete |
+
+---
 
 **Accepted formats**
 
@@ -142,11 +159,11 @@ Actions artifacts when running in CI.
 
 ---
 
-## API reference
+## API
 
 Base URL: `http://localhost:8000`
 
-Interactive Swagger UI is available at `/docs`. All error responses use the same
+Interactive Swagger UI is available at `/docs` and ReDoc at `/redoc`. All error responses use the same
 [error envelope](#error-envelope).
 
 ---
@@ -402,7 +419,7 @@ Every error response (4xx / 5xx) uses the same JSON structure:
 
 ## Architecture
 
-### Project layout
+### Application structure
 
 ```
 geo-measure-api/
@@ -488,7 +505,7 @@ routes/files.py  upload_file()
 
 ---
 
-### Measurement flow
+### Measurement calculation flow
 
 For each `FeatureRecord` from the reader:
 
@@ -634,7 +651,7 @@ file ID" (keyed by `file_id`, which is indexed).
 
 ---
 
-## Limitations
+## Limitations & accuracy
 
 - **Single-writer SQLite** — concurrent uploads may queue on the SQLite write lock.
   This is expected behaviour for SQLite and is not a bug.
