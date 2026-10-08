@@ -99,7 +99,9 @@ def validate_upload(filename: str, first_chunk: bytes, content_length: int | Non
     # UTF-32 BE BOM (00 00 FE FF) starts with 0x00 and is indistinguishable
     # from binary garbage at a single-byte level; we treat it as unsupported.
     stripped = first_chunk.lstrip()
-    if stripped and stripped[0] not in _KML_FIRST_BYTES:
+    if not stripped:
+        raise ValidationError("File is empty.")
+    if stripped[0] not in _KML_FIRST_BYTES:
         raise ValidationError("File has a .kml extension but does not appear to be XML.")
     return "kml"
 
@@ -129,55 +131,60 @@ def _safe_extract_zip(zip_path: Path, dest: Path) -> None:
     """
     settings = get_settings()
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        entries = zf.infolist()
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            entries = zf.infolist()
 
-        # 1. Entry count
-        if len(entries) > settings.MAX_ZIP_ENTRIES:
-            raise ZipSecurityError(
-                f"ZIP contains {len(entries)} entries; maximum is {settings.MAX_ZIP_ENTRIES}."
-            )
-
-        # 2. Aggregate uncompressed size (zip-bomb)
-        total_uncompressed = sum(e.file_size for e in entries)
-        if total_uncompressed > settings.max_unzipped_bytes:
-            raise ZipSecurityError(
-                f"ZIP would expand to "
-                f"{total_uncompressed / (1024 * 1024):.1f} MB; "
-                f"maximum is {settings.MAX_UNZIPPED_MB} MB."
-            )
-
-        dest_resolved = dest.resolve()
-
-        for entry in entries:
-            entry_name = entry.filename
-            norm_name = entry_name.replace("\\", "/")
-            posix_path = PurePosixPath(norm_name)
-
-            # 3. Absolute paths
-            if posix_path.is_absolute() or Path(entry_name).is_absolute():
-                raise ZipSecurityError(f"ZIP entry '{entry_name}' has an absolute path.")
-
-            # 4. Path traversal
-            if ".." in posix_path.parts or ".." in Path(entry_name).parts:
-                raise ZipSecurityError(f"ZIP entry '{entry_name}' contains path traversal.")
-
-            # 5. Symlinks — Unix external_attr high byte == 0xA means symlink
-            unix_attr = (entry.external_attr >> 16) & 0xFFFF
-            if unix_attr & 0xA000 == 0xA000:
-                raise ZipSecurityError(f"ZIP entry '{entry_name}' is a symbolic link.")
-
-            # 6. Validate resolved target stays inside dest
-            target = (dest / norm_name).resolve()
-            try:
-                target.relative_to(dest_resolved)
-            except ValueError as err:
+            # 1. Entry count
+            if len(entries) > settings.MAX_ZIP_ENTRIES:
                 raise ZipSecurityError(
-                    f"ZIP entry '{entry_name}' would extract outside destination."
-                ) from err
+                    f"ZIP contains {len(entries)} entries; maximum is {settings.MAX_ZIP_ENTRIES}."
+                )
 
-            # Extract single entry
-            zf.extract(entry, path=dest)
+            # 2. Aggregate uncompressed size (zip-bomb)
+            total_uncompressed = sum(e.file_size for e in entries)
+            if total_uncompressed > settings.max_unzipped_bytes:
+                raise ZipSecurityError(
+                    f"ZIP would expand to "
+                    f"{total_uncompressed / (1024 * 1024):.1f} MB; "
+                    f"maximum is {settings.MAX_UNZIPPED_MB} MB."
+                )
+
+            dest_resolved = dest.resolve()
+
+            for entry in entries:
+                entry_name = entry.filename
+                norm_name = entry_name.replace("\\", "/")
+                posix_path = PurePosixPath(norm_name)
+
+                # 3. Absolute paths
+                if posix_path.is_absolute() or Path(entry_name).is_absolute():
+                    raise ZipSecurityError(f"ZIP entry '{entry_name}' has an absolute path.")
+
+                # 4. Path traversal
+                if ".." in posix_path.parts or ".." in Path(entry_name).parts:
+                    raise ZipSecurityError(f"ZIP entry '{entry_name}' contains path traversal.")
+
+                # 5. Symlinks — Unix external_attr high byte == 0xA means symlink
+                unix_attr = (entry.external_attr >> 16) & 0xFFFF
+                if unix_attr & 0xA000 == 0xA000:
+                    raise ZipSecurityError(f"ZIP entry '{entry_name}' is a symbolic link.")
+
+                # 6. Validate resolved target stays inside dest
+                target = (dest / norm_name).resolve()
+                try:
+                    target.relative_to(dest_resolved)
+                except ValueError as err:
+                    raise ZipSecurityError(
+                        f"ZIP entry '{entry_name}' would extract outside destination."
+                    ) from err
+
+                # Extract single entry
+                zf.extract(entry, path=dest)
+    except (zipfile.BadZipFile, OSError) as err:
+        if isinstance(err, ZipSecurityError):
+            raise
+        raise ValidationError("File is not a valid ZIP archive.") from err
 
 
 # ---------------------------------------------------------------------------

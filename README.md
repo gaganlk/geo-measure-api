@@ -59,11 +59,11 @@ One bad feature **never** fails the whole file — errors are isolated per featu
 
 ### Local (virtualenv)
 
-**Prerequisites:** Python 3.12, GDAL ≥ 3.6, libgeos, libproj (Ubuntu: `sudo apt-get install gdal-bin libgdal-dev libgeos-dev libproj-dev`).
+**Prerequisites:** Python 3.12+ (Docker image pins `python:3.12-slim`; CI runs on `3.12`), GDAL ≥ 3.6, libgeos, libproj (Ubuntu: `sudo apt-get install gdal-bin libgdal-dev libgeos-dev libproj-dev`).
 
 ```bash
 # 1. Clone and enter the repo
-git clone https://github.com/yourname/geo-measure-api.git
+git clone https://github.com/gaganlk/geo-measure-api.git
 cd geo-measure-api
 
 # 2. Create and activate a virtual environment
@@ -650,6 +650,18 @@ file ID" (keyed by `file_id`, which is indexed).
 - **Geometry stored as text** — spatial queries against the Feature table are not
   indexable without PostGIS.
 - **No file deduplication** — uploading the same file twice creates two separate records.
+
+### UTM planar vs geodesic accuracy
+
+Measurements are calculated by projecting each feature into the nearest UTM zone and
+computing planar (Euclidean) area and length on the projected surface.  
+For typical city-scale to regional features this introduces **< 0.1% error** relative
+to geodesic (ellipsoidal) reference values.  
+For features larger than ~500 km or spanning a UTM zone boundary (6° longitude span)
+planar distortion increases — the zone-boundary `warning` in the response flags these
+cases. For globally-correct measurements use the `geodesic_area_m2()` / `geodesic_length_m()`
+helpers in `app/services/crs.py` (which use `pyproj.Geod`) directly; they are
+exposed as test cross-checks but not returned in the API response.
 
 ---
 

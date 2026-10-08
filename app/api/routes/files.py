@@ -149,6 +149,14 @@ async def upload_file(
         with upload_path.open("wb") as fh:
             fh.write(first_chunk)
             bytes_written += len(first_chunk)
+            if bytes_written > settings.max_upload_bytes:
+                fh.close()
+                upload_path.unlink(missing_ok=True)
+                from app.core.errors import FileTooLargeError
+
+                raise FileTooLargeError(
+                    f"File exceeds maximum upload size of {settings.MAX_UPLOAD_MB} MB."
+                )
 
             while True:
                 chunk = await file.read(_CHUNK)

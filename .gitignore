@@ -240,7 +240,9 @@ coverage-*.xml
 # Docker build cache
 .docker/
 
-# Documentation generator artifacts
-*.pdf
+# Documentation generator artifacts (root-level one-off PDFs, helper script)
+/*.pdf
 generate_docs_pdf.py
+# Allow PDFs committed under docs/
+!docs/*.pdf
 

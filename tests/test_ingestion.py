@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 import zipfile
 
 import pytest
+from shapely.geometry import Polygon
 
 from app.core.errors import (
     FileTooLargeError,
@@ -18,13 +20,16 @@ from app.core.errors import (
     ValidationError,
     ZipSecurityError,
 )
+from app.db.models import File, FileStatus
 from app.services.ingestion import (
     _check_kml_xml,
     _find_shp,
     _safe_extract_zip,
     _validate_shapefile_companions,
+    ingest_file,
     validate_upload,
 )
+from app.services.readers import FeatureRecord
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -232,3 +237,180 @@ class TestValidateShapefileCompanions:
         self._touch_all(tmp_path, "layer", [".shp", ".shx", ".dbf"])
         with pytest.raises(ValidationError, match="CRS cannot be determined"):
             _validate_shapefile_companions(tmp_path / "layer.shp")
+
+    def test_case_mixed_companions_pass(self, tmp_path: Path) -> None:
+        """Files named PARCEL.SHP, parcel.SHX, Parcel.dbf, pArCeL.PRJ must pass."""
+        (tmp_path / "PARCEL.SHP").touch()
+        (tmp_path / "parcel.SHX").touch()
+        (tmp_path / "Parcel.dbf").touch()
+        (tmp_path / "pArCeL.PRJ").touch()
+        _validate_shapefile_companions(tmp_path / "PARCEL.SHP")
+
+
+# ---------------------------------------------------------------------------
+# Additional edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestIngestionEdgeCases:
+    def test_empty_zip_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="not a valid ZIP archive"):
+            validate_upload("test.zip", b"", 0)
+
+    def test_empty_kml_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="File is empty"):
+            validate_upload("test.kml", b"", 0)
+
+    def test_truncated_zip_raises_validation_error(self, tmp_path: Path) -> None:
+        src = tmp_path / "truncated.zip"
+        src.write_bytes(b"PK\x03\x04\x14\x00\x00\x00\x08\x00truncated")
+        dest = tmp_path / "out"
+        dest.mkdir()
+        with pytest.raises(ValidationError, match="valid ZIP archive"):
+            _safe_extract_zip(src, dest)
+
+    def test_zip_with_symlink_rejected(self, tmp_path: Path) -> None:
+        src = tmp_path / "symlink.zip"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("symlink_entry")
+            # Unix symlink attribute: high byte 0xA (e.g. 0xA1ED)
+            info.external_attr = 0xA1ED << 16
+            zf.writestr(info, "target_file")
+        src.write_bytes(buf.getvalue())
+        dest = tmp_path / "out"
+        dest.mkdir()
+        with pytest.raises(ZipSecurityError, match="symbolic link"):
+            _safe_extract_zip(src, dest)
+
+    def test_kml_no_placemarks_valid_xml(self, tmp_path: Path) -> None:
+        p = tmp_path / "empty_doc.kml"
+        p.write_text(
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <name>Empty Document</name>
+              </Document>
+            </kml>""",
+            encoding="utf-8",
+        )
+        _check_kml_xml(p)  # Valid XML structure must pass check
+
+    def test_nested_directory_shapefile_found(self, tmp_path: Path) -> None:
+        sub = tmp_path / "nested" / "folder"
+        sub.mkdir(parents=True)
+        (sub / "layer.shp").touch()
+        result = _find_shp(tmp_path)
+        assert result == sub / "layer.shp"
+
+
+# ---------------------------------------------------------------------------
+# ingest_file orchestrator tests
+# ---------------------------------------------------------------------------
+
+
+class TestIngestFileOrchestrator:
+    @pytest.mark.asyncio
+    async def test_ingest_shapefile_success(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "test.zip"
+        _make_zip(
+            {
+                "data.shp": b"dummy",
+                "data.shx": b"dummy",
+                "data.dbf": b"dummy",
+                "data.prj": b"dummy",
+            },
+            zip_path,
+        )
+        file_rec = File(id="test-file-1", filename="test.zip", file_type="shapefile")
+        db = AsyncMock()
+
+        mock_record = FeatureRecord(
+            index=0,
+            geometry=Polygon([(0, 0), (1, 0), (1, 1), (0, 0)]),
+            geometry_type="Polygon",
+            properties={"name": "test"},
+            source_crs="EPSG:4326",
+            warnings=["test warning"],
+        )
+
+        with (
+            patch("app.services.ingestion.read_shapefile", return_value=[mock_record]),
+            patch("app.services.ingestion.FileRepository") as mock_file_repo,
+            patch("app.services.ingestion.FeatureRepository") as mock_feat_repo,
+        ):
+            mock_file_repo_inst = AsyncMock()
+            mock_file_repo.return_value = mock_file_repo_inst
+            mock_feat_repo_inst = AsyncMock()
+            mock_feat_repo.return_value = mock_feat_repo_inst
+
+            await ingest_file(zip_path, file_rec, db)
+
+            mock_feat_repo_inst.bulk_create.assert_awaited_once()
+            mock_file_repo_inst.update_status.assert_awaited_once_with(
+                file_rec, status=FileStatus.COMPLETED, feature_count=1, crs="EPSG:4326"
+            )
+
+    @pytest.mark.asyncio
+    async def test_ingest_kml_success(self, tmp_path: Path) -> None:
+        kml_path = tmp_path / "test.kml"
+        kml_path.write_text("<kml><Document/></kml>", encoding="utf-8")
+        file_rec = File(id="test-file-2", filename="test.kml", file_type="kml")
+        db = AsyncMock()
+
+        with (
+            patch("app.services.ingestion.read_kml", return_value=[]),
+            patch("app.services.ingestion.FileRepository") as mock_file_repo,
+            patch("app.services.ingestion.FeatureRepository") as mock_feat_repo,
+        ):
+            mock_file_repo_inst = AsyncMock()
+            mock_file_repo.return_value = mock_file_repo_inst
+            mock_feat_repo_inst = AsyncMock()
+            mock_feat_repo.return_value = mock_feat_repo_inst
+
+            await ingest_file(kml_path, file_rec, db)
+
+            mock_file_repo_inst.update_status.assert_awaited_once_with(
+                file_rec, status=FileStatus.COMPLETED, feature_count=0, crs="EPSG:4326"
+            )
+
+    @pytest.mark.asyncio
+    async def test_ingest_unknown_file_type_raises(self, tmp_path: Path) -> None:
+        file_rec = File(id="test-file-3", filename="test.unknown", file_type="geojson")
+        db = AsyncMock()
+
+        with (
+            patch("app.services.ingestion.FileRepository") as mock_file_repo,
+            patch("app.services.ingestion.FeatureRepository"),
+        ):
+            mock_file_repo_inst = AsyncMock()
+            mock_file_repo.return_value = mock_file_repo_inst
+
+            from app.core.errors import ProcessingError
+
+            with pytest.raises(ProcessingError, match="Unknown file_type"):
+                await ingest_file(tmp_path / "test.geojson", file_rec, db)
+
+            mock_file_repo_inst.update_status.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ingest_unexpected_exception_handles_gracefully(self, tmp_path: Path) -> None:
+        kml_path = tmp_path / "test.kml"
+        kml_path.write_text("<kml><Document/></kml>", encoding="utf-8")
+        file_rec = File(id="test-file-4", filename="test.kml", file_type="kml")
+        db = AsyncMock()
+
+        with (
+            patch("app.services.ingestion.read_kml", side_effect=RuntimeError("GDAL crash")),
+            patch("app.services.ingestion.FileRepository") as mock_file_repo,
+            patch("app.services.ingestion.FeatureRepository"),
+        ):
+            mock_file_repo_inst = AsyncMock()
+            mock_file_repo.return_value = mock_file_repo_inst
+
+            from app.core.errors import ProcessingError
+
+            with pytest.raises(ProcessingError, match="Unexpected error during ingestion"):
+                await ingest_file(kml_path, file_rec, db)
+
+            mock_file_repo_inst.update_status.assert_awaited_once()
